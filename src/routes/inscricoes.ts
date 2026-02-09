@@ -132,4 +132,26 @@ router.patch('/:id/presenca', authMiddleware, async (req, res) => {
     res.json({ id: Number(id), presente: !!newStatus })
 })
 
+// DELETE /api/inscricoes/:id — Excluir inscrição
+router.delete('/:id', authMiddleware, async (req, res) => {
+    const { id } = req.params
+
+    const { rows } = await pool.query('SELECT id FROM inscricoes WHERE id = $1', [Number(id)])
+    if (rows.length === 0) {
+        res.status(404).json({ error: 'Inscrição não encontrada' })
+        return
+    }
+
+    try {
+        // Remove certificado associado, se existir
+        await pool.query('DELETE FROM certificados WHERE inscricao_id = $1', [Number(id)])
+        // Remove a inscrição
+        await pool.query('DELETE FROM inscricoes WHERE id = $1', [Number(id)])
+        res.json({ message: 'Inscrição excluída com sucesso' })
+    } catch (err) {
+        console.error('Erro ao excluir inscrição:', err)
+        res.status(500).json({ error: 'Erro ao excluir inscrição' })
+    }
+})
+
 export default router
