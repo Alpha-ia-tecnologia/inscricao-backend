@@ -1,42 +1,46 @@
+import 'dotenv/config'
 import bcrypt from 'bcryptjs'
-import db from './db.js'
+import { pool, initDb } from './db.js'
 
-// ── Seed admin user ──
-const adminEmail = 'admin@semed.tuntum.ma.gov.br'
-const adminPassword = 'admin2026'
-const adminNome = 'Administrador SEMED'
+async function seed() {
+    // Ensure tables exist
+    await initDb()
 
-const existing = db.prepare('SELECT id FROM admins WHERE email = ?').get(adminEmail)
+    // ── Admin padrão ──
+    const email = 'admin@semed.tuntum.ma.gov.br'
+    const senhaHash = bcrypt.hashSync('admin2026', 10)
 
-if (existing) {
-    console.log('✅ Admin já existe:', adminEmail)
-} else {
-    const hash = bcrypt.hashSync(adminPassword, 10)
-    db.prepare('INSERT INTO admins (email, senha_hash, nome) VALUES (?, ?, ?)').run(
-        adminEmail,
-        hash,
-        adminNome
+    await pool.query(
+        `INSERT INTO admins (email, senha_hash, nome)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO NOTHING`,
+        [email, senhaHash, 'Administrador SEMED']
     )
-    console.log('✅ Admin criado:', adminEmail)
-    console.log('🔑 Senha:', adminPassword)
-}
+    console.log('✅ Admin padrão criado (ou já existia)')
 
-console.log('\nSeed concluído!')
+    // ── Settings padrão ──
+    const defaultSettings = [
+        ['event_name', 'Jornada Pedagógica 2026'],
+        ['event_date', '25 e 26 de Fevereiro de 2026'],
+        ['event_location', 'Centro de Convenções — Tuntum, MA'],
+        ['event_workload', '40'],
+    ]
 
-// ── Seed settings ──
-const defaultSettings: Record<string, string> = {
-    event_name: 'Jornada Pedagógica 2026',
-    event_date: '25 e 26 de Fevereiro de 2026',
-    event_location: 'Centro de Convenções — Tuntum, MA',
-    event_workload: '40',
-}
-
-for (const [key, value] of Object.entries(defaultSettings)) {
-    const existingSetting = db.prepare('SELECT key FROM settings WHERE key = ?').get(key)
-    if (!existingSetting) {
-        db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, value)
-        console.log(`✅ Configuração criada: ${key} -> "${value}"`)
-    } else {
-        console.log(`✅ Configuração já existe: ${key}`)
+    for (const [key, value] of defaultSettings) {
+        await pool.query(
+            `INSERT INTO settings (key, value)
+             VALUES ($1, $2)
+             ON CONFLICT (key) DO NOTHING`,
+            [key, value]
+        )
     }
+    console.log('✅ Configurações padrão criadas (ou já existiam)')
+
+    await pool.end()
+    console.log('🏁 Seed concluído!')
 }
+
+seed().catch((err) => {
+    console.error('❌ Erro no seed:', err)
+    process.exit(1)
+})

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import db from '../db.js'
+import { pool } from '../db.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { sendConfirmationEmail } from '../services/email.js'
 
@@ -25,16 +25,19 @@ router.post('/', async (req, res) => {
     }
 
     // Verificar duplicata
-    const existing = db.prepare('SELECT id FROM inscricoes WHERE cpf = ?').get(cpfClean)
-    if (existing) {
+    const { rows: existing } = await pool.query(
+        'SELECT id FROM inscricoes WHERE cpf = $1', [cpfClean]
+    )
+    if (existing.length > 0) {
         res.status(409).json({ error: 'CPF já inscrito neste evento' })
         return
     }
 
     try {
-        const result = db.prepare(
-            'INSERT INTO inscricoes (nome, cpf, email, telefone, instituicao, cargo) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(nome.trim(), cpfClean, email.trim().toLowerCase(), telefone.trim(), instituicao, cargo)
+        const { rows } = await pool.query(
+            'INSERT INTO inscricoes (nome, cpf, email, telefone, instituicao, cargo) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+            [nome.trim(), cpfClean, email.trim().toLowerCase(), telefone.trim(), instituicao, cargo]
+        )
 
         // Enviar e-mail de confirmação (não bloqueia a resposta)
         sendConfirmationEmail(email.trim(), nome.trim()).catch((err) => {
@@ -42,7 +45,7 @@ router.post('/', async (req, res) => {
         })
 
         res.status(201).json({
-            id: result.lastInsertRowid,
+            id: rows[0].id,
             message: 'Inscrição realizada com sucesso!',
         })
     } catch (err: unknown) {
@@ -54,76 +57,77 @@ router.post('/', async (req, res) => {
 // ── ADMIN (protegidas) ──
 
 // GET /api/inscricoes — Listar todas
-router.get('/', authMiddleware, (_req, res) => {
-    const inscricoes = db.prepare(
+router.get('/', authMiddleware, async (_req, res) => {
+    const { rows } = await pool.query(
         'SELECT * FROM inscricoes ORDER BY created_at DESC'
-    ).all()
-
-    res.json(inscricoes)
+    )
+    res.json(rows)
 })
 
 // GET /api/inscricoes/stats — Dashboard stats
-router.get('/stats', authMiddleware, (_req, res) => {
-    const total = db.prepare('SELECT COUNT(*) as count FROM inscricoes').get() as { count: number }
-    const presentes = db.prepare('SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1').get() as { count: number }
-    const ausentes = total.count - presentes.count
+router.get('/stats', authMiddleware, async (_req, res) => {
+    const total = (await pool.query('SELECT COUNT(*) as count FROM inscricoes')).rows[0]
+    const presentes = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1')).rows[0]
+    const ausentes = Number(total.count) - Number(presentes.count)
 
-    const certificadosGerados = db.prepare('SELECT COUNT(*) as count FROM certificados WHERE gerado = 1').get() as { count: number }
-    const certificadosEnviados = db.prepare('SELECT COUNT(*) as count FROM certificados WHERE enviado = 1').get() as { count: number }
+    const certificadosGerados = (await pool.query('SELECT COUNT(*) as count FROM certificados WHERE gerado = 1')).rows[0]
+    const certificadosEnviados = (await pool.query('SELECT COUNT(*) as count FROM certificados WHERE enviado = 1')).rows[0]
 
     // Inscrições por instituição
-    const porInstituicao = db.prepare(
+    const { rows: porInstituicao } = await pool.query(
         'SELECT instituicao as name, COUNT(*) as count FROM inscricoes GROUP BY instituicao ORDER BY count DESC'
-    ).all()
+    )
 
     // Últimas 5 inscrições
-    const recentes = db.prepare(
+    const { rows: recentes } = await pool.query(
         'SELECT nome, instituicao, cargo, data_inscricao FROM inscricoes ORDER BY created_at DESC LIMIT 5'
-    ).all()
+    )
 
     res.json({
-        totalInscritos: total.count,
-        presentes: presentes.count,
+        totalInscritos: Number(total.count),
+        presentes: Number(presentes.count),
         ausentes,
-        certificadosGerados: certificadosGerados.count,
-        certificadosEnviados: certificadosEnviados.count,
+        certificadosGerados: Number(certificadosGerados.count),
+        certificadosEnviados: Number(certificadosEnviados.count),
         porInstituicao,
         recentes,
     })
 })
 
 // GET /api/inscricoes/export — CSV
-router.get('/export', authMiddleware, (_req, res) => {
-    const inscricoes = db.prepare('SELECT * FROM inscricoes ORDER BY nome').all() as Array<{
-        nome: string; cpf: string; email: string; telefone: string;
-        instituicao: string; cargo: string; presente: number; data_inscricao: string
-    }>
+router.get('/export', authMiddleware, async (_req, res) => {
+    const { rows: inscricoes } = await pool.query(
+        'SELECT * FROM inscricoes ORDER BY nome'
+    )
 
     const headers = 'Nome,CPF,E-mail,Telefone,Instituição,Cargo,Presente,Data Inscrição\n'
-    const rows = inscricoes.map((i) =>
+    const csvRows = inscricoes.map((i: any) =>
         `"${i.nome}","${i.cpf}","${i.email}","${i.telefone}","${i.instituicao}","${i.cargo}","${i.presente ? 'Sim' : 'Não'}","${i.data_inscricao}"`
     ).join('\n')
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', 'attachment; filename=participantes_jornada_2026.csv')
-    res.send('\ufeff' + headers + rows)
+    res.send('\ufeff' + headers + csvRows)
 })
 
 // PATCH /api/inscricoes/:id/presenca — Toggle check-in
-router.patch('/:id/presenca', authMiddleware, (req, res) => {
+router.patch('/:id/presenca', authMiddleware, async (req, res) => {
     const { id } = req.params
 
-    const inscricao = db.prepare('SELECT id, presente FROM inscricoes WHERE id = ?').get(Number(id)) as {
-        id: number; presente: number
-    } | undefined
+    const { rows } = await pool.query(
+        'SELECT id, presente FROM inscricoes WHERE id = $1', [Number(id)]
+    )
 
+    const inscricao = rows[0]
     if (!inscricao) {
         res.status(404).json({ error: 'Inscrição não encontrada' })
         return
     }
 
     const newStatus = inscricao.presente ? 0 : 1
-    db.prepare('UPDATE inscricoes SET presente = ? WHERE id = ?').run(newStatus, Number(id))
+    await pool.query(
+        'UPDATE inscricoes SET presente = $1 WHERE id = $2', [newStatus, Number(id)]
+    )
 
     res.json({ id: Number(id), presente: !!newStatus })
 })

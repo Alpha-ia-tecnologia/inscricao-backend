@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import db from '../db.js'
+import { pool } from '../db.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { generateCertificate } from '../services/certificado.js'
 import { sendCertificateEmail } from '../services/email.js'
@@ -7,20 +7,20 @@ import { sendCertificateEmail } from '../services/email.js'
 const router = Router()
 
 // POST /api/certificados/gerar — Gerar PDFs para presentes
-router.post('/gerar', authMiddleware, (_req, res) => {
+router.post('/gerar', authMiddleware, async (_req, res) => {
     // Buscar presentes que ainda não têm certificado
-    const presentes = db.prepare(`
-    SELECT i.* FROM inscricoes i
-    LEFT JOIN certificados c ON c.inscricao_id = i.id
-    WHERE i.presente = 1 AND (c.id IS NULL OR c.gerado = 0)
-  `).all() as Array<{
-        id: number; nome: string; cpf: string; cargo: string; instituicao: string
-    }>
+    const { rows: presentes } = await pool.query(`
+        SELECT i.* FROM inscricoes i
+        LEFT JOIN certificados c ON c.inscricao_id = i.id
+        WHERE i.presente = 1 AND (c.id IS NULL OR c.gerado = 0)
+    `)
 
     if (presentes.length === 0) {
         // Check if all already generated
-        const totalPresentes = db.prepare('SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1').get() as { count: number }
-        if (totalPresentes.count > 0) {
+        const totalPresentes = (await pool.query(
+            'SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1'
+        )).rows[0]
+        if (Number(totalPresentes.count) > 0) {
             res.json({ message: 'Todos os certificados já foram gerados', gerados: 0 })
             return
         }
@@ -30,18 +30,18 @@ router.post('/gerar', authMiddleware, (_req, res) => {
 
     let gerados = 0
 
-    const insertStmt = db.prepare(`
-    INSERT OR REPLACE INTO certificados (inscricao_id, arquivo_path, gerado, data_gerado)
-    VALUES (?, ?, 1, datetime('now', 'localtime'))
-  `)
-
     for (const p of presentes) {
         try {
-            const filePath = generateCertificate(
+            const filePath = await generateCertificate(
                 { nome: p.nome, cpf: p.cpf, cargo: p.cargo, instituicao: p.instituicao },
                 p.id
             )
-            insertStmt.run(p.id, filePath)
+            await pool.query(
+                `INSERT INTO certificados (inscricao_id, arquivo_path, gerado, data_gerado)
+                 VALUES ($1, $2, 1, NOW())
+                 ON CONFLICT (inscricao_id) DO UPDATE SET arquivo_path = $2, gerado = 1, data_gerado = NOW()`,
+                [p.id, filePath]
+            )
             gerados++
         } catch (err) {
             console.error(`Erro ao gerar certificado para ${p.nome}:`, err)
@@ -53,14 +53,12 @@ router.post('/gerar', authMiddleware, (_req, res) => {
 
 // POST /api/certificados/enviar — Enviar por e-mail
 router.post('/enviar', authMiddleware, async (_req, res) => {
-    const pendentes = db.prepare(`
-    SELECT c.id as cert_id, c.arquivo_path, i.nome, i.email
-    FROM certificados c
-    JOIN inscricoes i ON i.id = c.inscricao_id
-    WHERE c.gerado = 1 AND c.enviado = 0
-  `).all() as Array<{
-        cert_id: number; arquivo_path: string; nome: string; email: string
-    }>
+    const { rows: pendentes } = await pool.query(`
+        SELECT c.id as cert_id, c.arquivo_path, i.nome, i.email
+        FROM certificados c
+        JOIN inscricoes i ON i.id = c.inscricao_id
+        WHERE c.gerado = 1 AND c.enviado = 0
+    `)
 
     if (pendentes.length === 0) {
         res.json({ message: 'Nenhum certificado pendente de envio', enviados: 0 })
@@ -72,10 +70,10 @@ router.post('/enviar', authMiddleware, async (_req, res) => {
     for (const p of pendentes) {
         try {
             await sendCertificateEmail(p.email, p.nome, p.arquivo_path)
-            db.prepare(`
-        UPDATE certificados SET enviado = 1, data_enviado = datetime('now', 'localtime')
-        WHERE id = ?
-      `).run(p.cert_id)
+            await pool.query(
+                'UPDATE certificados SET enviado = 1, data_enviado = NOW() WHERE id = $1',
+                [p.cert_id]
+            )
             enviados++
         } catch (err) {
             console.error(`Erro ao enviar certificado para ${p.nome}:`, err)
@@ -86,16 +84,16 @@ router.post('/enviar', authMiddleware, async (_req, res) => {
 })
 
 // GET /api/certificados/stats — Stats dos certificados
-router.get('/stats', authMiddleware, (_req, res) => {
-    const totalPresentes = db.prepare('SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1').get() as { count: number }
-    const gerados = db.prepare('SELECT COUNT(*) as count FROM certificados WHERE gerado = 1').get() as { count: number }
-    const enviados = db.prepare('SELECT COUNT(*) as count FROM certificados WHERE enviado = 1').get() as { count: number }
-    const pendentes = totalPresentes.count - enviados.count
+router.get('/stats', authMiddleware, async (_req, res) => {
+    const totalPresentes = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1')).rows[0]
+    const gerados = (await pool.query('SELECT COUNT(*) as count FROM certificados WHERE gerado = 1')).rows[0]
+    const enviados = (await pool.query('SELECT COUNT(*) as count FROM certificados WHERE enviado = 1')).rows[0]
+    const pendentes = Number(totalPresentes.count) - Number(enviados.count)
 
     res.json({
-        totalPresentes: totalPresentes.count,
-        certificadosGerados: gerados.count,
-        certificadosEnviados: enviados.count,
+        totalPresentes: Number(totalPresentes.count),
+        certificadosGerados: Number(gerados.count),
+        certificadosEnviados: Number(enviados.count),
         pendentes: pendentes > 0 ? pendentes : 0,
     })
 })

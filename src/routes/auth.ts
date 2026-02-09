@@ -1,13 +1,12 @@
 import { Router } from 'express'
-import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
-import db from '../db.js'
+import jwt from 'jsonwebtoken'
+import { pool } from '../db.js'
 
 const router = Router()
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret'
 
 // POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
     const { email, senha } = req.body
 
     if (!email || !senha) {
@@ -15,30 +14,32 @@ router.post('/login', (req, res) => {
         return
     }
 
-    const admin = db.prepare('SELECT * FROM admins WHERE email = ?').get(email) as {
-        id: number; email: string; senha_hash: string; nome: string
-    } | undefined
+    const { rows } = await pool.query(
+        'SELECT id, email, senha_hash, nome FROM admins WHERE email = $1',
+        [email.trim().toLowerCase()]
+    )
 
+    const admin = rows[0]
     if (!admin) {
-        res.status(401).json({ error: 'E-mail ou senha inválidos' })
+        res.status(401).json({ error: 'Credenciais inválidas' })
         return
     }
 
     const valid = bcrypt.compareSync(senha, admin.senha_hash)
     if (!valid) {
-        res.status(401).json({ error: 'E-mail ou senha inválidos' })
+        res.status(401).json({ error: 'Credenciais inválidas' })
         return
     }
 
     const token = jwt.sign(
         { id: admin.id, email: admin.email },
-        JWT_SECRET,
-        { expiresIn: '24h' }
+        process.env.JWT_SECRET || 'dev_secret',
+        { expiresIn: '8h' }
     )
 
     res.json({
         token,
-        admin: { id: admin.id, email: admin.email, nome: admin.nome },
+        admin: { id: admin.id, nome: admin.nome, email: admin.email },
     })
 })
 

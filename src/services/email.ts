@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer'
-import db from '../db.js'
+import { pool } from '../db.js'
 
 const gmailUser = process.env.GMAIL_USER
 const gmailPass = process.env.GMAIL_APP_PASSWORD
@@ -22,9 +22,9 @@ if (gmailUser && gmailPass) {
 
 // ── Helpers ──
 
-function getSettings(): Record<string, string> {
-  const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
-  return rows.reduce((acc, row) => {
+async function getSettings(): Promise<Record<string, string>> {
+  const { rows } = await pool.query('SELECT key, value FROM settings')
+  return rows.reduce((acc: Record<string, string>, row: any) => {
     acc[row.key] = row.value
     return acc
   }, {} as Record<string, string>)
@@ -32,9 +32,8 @@ function getSettings(): Record<string, string> {
 
 // ── Templates ──
 
-function confirmationTemplate(nome: string): string {
+function confirmationTemplate(nome: string, s: Record<string, string>): string {
   const firstName = nome.split(' ')[0]
-  const s = getSettings()
   const eventName = s.event_name || 'Jornada Pedagógica 2026'
   const eventDate = s.event_date || '25 e 26 de Fevereiro de 2026'
   const eventLocation = s.event_location || 'Centro de Convenções — Tuntum, MA'
@@ -70,9 +69,8 @@ function confirmationTemplate(nome: string): string {
   `
 }
 
-function certificateEmailTemplate(nome: string): string {
+function certificateEmailTemplate(nome: string, s: Record<string, string>): string {
   const firstName = nome.split(' ')[0]
-  const s = getSettings()
   const eventName = s.event_name || 'Jornada Pedagógica 2026'
   const eventWorkload = s.event_workload || '40'
 
@@ -112,14 +110,14 @@ export async function sendConfirmationEmail(to: string, nome: string): Promise<b
     return false
   }
 
-  const s = getSettings()
+  const s = await getSettings()
   const eventName = s.event_name || 'Jornada Pedagógica 2026'
 
   await transporter.sendMail({
     from: `"SEMED Tuntum" <${gmailUser}>`,
     to,
     subject: `✅ Inscrição Confirmada — ${eventName}`,
-    html: confirmationTemplate(nome),
+    html: confirmationTemplate(nome, s),
   })
 
   console.log(`📧 E-mail de confirmação enviado para ${to}`)
@@ -136,14 +134,14 @@ export async function sendCertificateEmail(
     return false
   }
 
-  const s = getSettings()
+  const s = await getSettings()
   const eventName = s.event_name || 'Jornada Pedagógica 2026'
 
   await transporter.sendMail({
     from: `"SEMED Tuntum" <${gmailUser}>`,
     to,
     subject: `🏆 Certificado — ${eventName}`,
-    html: certificateEmailTemplate(nome),
+    html: certificateEmailTemplate(nome, s),
     attachments: [
       {
         filename: `Certificado_${nome.replace(/\s+/g, '_')}.pdf`,
