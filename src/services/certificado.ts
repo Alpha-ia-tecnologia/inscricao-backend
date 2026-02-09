@@ -100,7 +100,7 @@ export async function generateCertificate(data: CertificateData, inscricaoId: nu
         doc.fontSize(13)
             .fillColor('#374151')
             .text(
-                `CPF: ${formatCPF(data.cpf)} — ${data.cargo} — ${data.instituicao}`,
+                `CPF: ${formatCPF(data.cpf)} — ${data.cargo}`,
                 80, 275, { align: 'center', width: width - 160 }
             )
 
