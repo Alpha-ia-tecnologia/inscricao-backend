@@ -24,6 +24,8 @@ async function seed() {
         ['event_date', '25 e 26 de Fevereiro de 2026'],
         ['event_location', 'Centro de Convenções — Tuntum, MA'],
         ['event_workload', '40'],
+        ['vagas_dia1', '500'],
+        ['vagas_dia2', '500'],
     ]
 
     for (const [key, value] of defaultSettings) {

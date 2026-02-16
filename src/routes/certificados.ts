@@ -33,7 +33,7 @@ router.post('/gerar', authMiddleware, async (_req, res) => {
     for (const p of presentes) {
         try {
             const filePath = await generateCertificate(
-                { nome: p.nome, cpf: p.cpf, cargo: p.cargo, instituicao: p.instituicao },
+                { nome: p.nome, cpf: p.cpf, cargo: p.cargo, instituicao: p.instituicao, dia_participacao: p.dia_participacao || 'ambos' },
                 p.id
             )
             await pool.query(
@@ -54,7 +54,7 @@ router.post('/gerar', authMiddleware, async (_req, res) => {
 // POST /api/certificados/enviar — Enviar por e-mail
 router.post('/enviar', authMiddleware, async (_req, res) => {
     const { rows: pendentes } = await pool.query(`
-        SELECT c.id as cert_id, c.arquivo_path, i.nome, i.email
+        SELECT c.id as cert_id, c.arquivo_path, i.nome, i.email, i.dia_participacao
         FROM certificados c
         JOIN inscricoes i ON i.id = c.inscricao_id
         WHERE c.gerado = 1 AND c.enviado = 0
@@ -69,7 +69,7 @@ router.post('/enviar', authMiddleware, async (_req, res) => {
 
     for (const p of pendentes) {
         try {
-            await sendCertificateEmail(p.email, p.nome, p.arquivo_path)
+            await sendCertificateEmail(p.email, p.nome, p.arquivo_path, p.dia_participacao || 'ambos')
             await pool.query(
                 'UPDATE certificados SET enviado = 1, data_enviado = NOW() WHERE id = $1',
                 [p.cert_id]

@@ -9,11 +9,18 @@ const router = Router()
 
 // POST /api/inscricoes — Nova inscrição
 router.post('/', async (req, res) => {
-    const { nome, cpf, email, telefone, instituicao, cargo } = req.body
+    const { nome, cpf, email, telefone, instituicao, cargo, dia_participacao } = req.body
 
     // Validações básicas
-    if (!nome || !cpf || !email || !telefone || !instituicao || !cargo) {
+    if (!nome || !cpf || !email || !telefone || !instituicao || !cargo || !dia_participacao) {
         res.status(400).json({ error: 'Todos os campos são obrigatórios' })
+        return
+    }
+
+    // Validar dia_participacao
+    const diasValidos = ['dia1', 'dia2', 'ambos']
+    if (!diasValidos.includes(dia_participacao)) {
+        res.status(400).json({ error: 'Dia de participação inválido' })
         return
     }
 
@@ -33,14 +40,48 @@ router.post('/', async (req, res) => {
         return
     }
 
+    // ── Verificar vagas disponíveis ──
+    try {
+        const { rows: settingsRows } = await pool.query('SELECT key, value FROM settings WHERE key IN ($1, $2)', ['vagas_dia1', 'vagas_dia2'])
+        const settingsMap: Record<string, string> = {}
+        for (const r of settingsRows) settingsMap[r.key] = r.value
+        const maxDia1 = parseInt(settingsMap.vagas_dia1 || '500', 10)
+        const maxDia2 = parseInt(settingsMap.vagas_dia2 || '500', 10)
+
+        const { rows: countRows } = await pool.query(
+            `SELECT dia_participacao, COUNT(*)::int as count FROM inscricoes GROUP BY dia_participacao`
+        )
+        const counts: Record<string, number> = {}
+        for (const r of countRows) counts[r.dia_participacao] = r.count
+
+        const ocupDia1 = (counts['dia1'] || 0) + (counts['ambos'] || 0)
+        const ocupDia2 = (counts['dia2'] || 0) + (counts['ambos'] || 0)
+
+        if (dia_participacao === 'dia1' || dia_participacao === 'ambos') {
+            if (ocupDia1 >= maxDia1) {
+                res.status(409).json({ error: 'Vagas esgotadas para o 1º Dia' })
+                return
+            }
+        }
+        if (dia_participacao === 'dia2' || dia_participacao === 'ambos') {
+            if (ocupDia2 >= maxDia2) {
+                res.status(409).json({ error: 'Vagas esgotadas para o 2º Dia' })
+                return
+            }
+        }
+    } catch (err) {
+        console.error('Erro ao verificar vagas:', err)
+        // Continue with registration if vacancy check fails
+    }
+
     try {
         const { rows } = await pool.query(
-            'INSERT INTO inscricoes (nome, cpf, email, telefone, instituicao, cargo) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-            [nome.trim(), cpfClean, email.trim().toLowerCase(), telefone.trim(), instituicao, cargo]
+            'INSERT INTO inscricoes (nome, cpf, email, telefone, instituicao, cargo, dia_participacao) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+            [nome.trim(), cpfClean, email.trim().toLowerCase(), telefone.trim(), instituicao, cargo, dia_participacao]
         )
 
         // Enviar e-mail de confirmação (não bloqueia a resposta)
-        sendConfirmationEmail(email.trim(), nome.trim()).catch((err) => {
+        sendConfirmationEmail(email.trim(), nome.trim(), dia_participacao).catch((err) => {
             console.error('Erro ao enviar e-mail de confirmação:', err)
         })
 
@@ -51,6 +92,34 @@ router.post('/', async (req, res) => {
     } catch (err: unknown) {
         console.error('Erro ao criar inscrição:', err)
         res.status(500).json({ error: 'Erro interno ao processar inscrição' })
+    }
+})
+
+// GET /api/inscricoes/vagas — Public: vagas disponíveis por dia
+router.get('/vagas', async (_req, res) => {
+    try {
+        const { rows: settingsRows } = await pool.query('SELECT key, value FROM settings WHERE key IN ($1, $2)', ['vagas_dia1', 'vagas_dia2'])
+        const settingsMap: Record<string, string> = {}
+        for (const r of settingsRows) settingsMap[r.key] = r.value
+        const maxDia1 = parseInt(settingsMap.vagas_dia1 || '500', 10)
+        const maxDia2 = parseInt(settingsMap.vagas_dia2 || '500', 10)
+
+        const { rows: countRows } = await pool.query(
+            `SELECT dia_participacao, COUNT(*)::int as count FROM inscricoes GROUP BY dia_participacao`
+        )
+        const counts: Record<string, number> = {}
+        for (const r of countRows) counts[r.dia_participacao] = r.count
+
+        const ocupDia1 = (counts['dia1'] || 0) + (counts['ambos'] || 0)
+        const ocupDia2 = (counts['dia2'] || 0) + (counts['ambos'] || 0)
+
+        res.json({
+            dia1: { total: ocupDia1, max: maxDia1, disponivel: Math.max(0, maxDia1 - ocupDia1) },
+            dia2: { total: ocupDia2, max: maxDia2, disponivel: Math.max(0, maxDia2 - ocupDia2) },
+        })
+    } catch (err) {
+        console.error('Erro ao buscar vagas:', err)
+        res.status(500).json({ error: 'Erro ao buscar vagas' })
     }
 })
 
@@ -100,9 +169,10 @@ router.get('/export', authMiddleware, async (_req, res) => {
         'SELECT * FROM inscricoes ORDER BY nome'
     )
 
-    const headers = 'Nome,CPF,E-mail,Telefone,Instituição,Cargo,Presente,Data Inscrição\n'
+    const diaLabel = (d: string) => d === 'dia1' ? 'Dia 1 (25/02)' : d === 'dia2' ? 'Dia 2 (26/02)' : 'Ambos os dias'
+    const headers = 'Nome,CPF,E-mail,Telefone,Instituição,Cargo,Dia Participação,Presente,Data Inscrição\n'
     const csvRows = inscricoes.map((i: any) =>
-        `"${i.nome}","${i.cpf}","${i.email}","${i.telefone}","${i.instituicao}","${i.cargo}","${i.presente ? 'Sim' : 'Não'}","${i.data_inscricao}"`
+        `"${i.nome}","${i.cpf}","${i.email}","${i.telefone}","${i.instituicao}","${i.cargo}","${diaLabel(i.dia_participacao || 'ambos')}","${i.presente ? 'Sim' : 'Não'}","${i.data_inscricao}"`
     ).join('\n')
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')

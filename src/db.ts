@@ -33,6 +33,7 @@ export async function initDb() {
                 telefone TEXT NOT NULL,
                 instituicao TEXT NOT NULL,
                 cargo TEXT NOT NULL,
+                dia_participacao TEXT NOT NULL DEFAULT 'ambos',
                 presente INTEGER DEFAULT 0,
                 data_inscricao TEXT DEFAULT TO_CHAR(NOW(), 'DD/MM/YYYY'),
                 created_at TIMESTAMP DEFAULT NOW()
@@ -73,6 +74,11 @@ export async function initDb() {
                 created_at TIMESTAMP DEFAULT NOW()
             )
         `)
+
+    // Add dia_participacao column if it doesn't exist (migration for existing tables)
+    await client.query(`
+      ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS dia_participacao TEXT NOT NULL DEFAULT 'ambos'
+    `)
 
     console.log('✅ Tabelas PostgreSQL verificadas/criadas')
   } finally {

@@ -30,9 +30,15 @@ async function getSettings(): Promise<Record<string, string>> {
   }, {} as Record<string, string>)
 }
 
+function diaLabel(dia: string): string {
+  if (dia === 'dia1') return '1º Dia — Gestores, Coordenadores e Equipe Técnica da SEMED'
+  if (dia === 'dia2') return '2º Dia — Professores, Gestores, Coordenadores e Equipe da SEMED'
+  return 'Ambos os dias'
+}
+
 // ── Templates ──
 
-function confirmationTemplate(nome: string, s: Record<string, string>): string {
+function confirmationTemplate(nome: string, dia_participacao: string, s: Record<string, string>): string {
   const firstName = nome.split(' ')[0]
   const eventName = s.event_name || 'Jornada Pedagógica 2026'
   const eventDate = s.event_date || '25 e 26 de Fevereiro de 2026'
@@ -54,6 +60,7 @@ function confirmationTemplate(nome: string, s: Record<string, string>): string {
           <p style="margin: 0; color: #1a472a; font-weight: 600;">📅 Data: ${eventDate}</p>
           <p style="margin: 8px 0 0; color: #1a472a;">📍 Local: ${eventLocation}</p>
           <p style="margin: 8px 0 0; color: #1a472a;">⏰ Carga horária: ${eventWorkload} horas</p>
+          <p style="margin: 8px 0 0; color: #1a472a; font-weight: 600;">🗓️ Participação: ${diaLabel(dia_participacao)}</p>
         </div>
         <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
           Após o evento, o certificado de participação será enviado para este e-mail.
@@ -69,7 +76,7 @@ function confirmationTemplate(nome: string, s: Record<string, string>): string {
   `
 }
 
-function certificateEmailTemplate(nome: string, s: Record<string, string>): string {
+function certificateEmailTemplate(nome: string, dia_participacao: string, s: Record<string, string>): string {
   const firstName = nome.split(' ')[0]
   const eventName = s.event_name || 'Jornada Pedagógica 2026'
   const eventWorkload = s.event_workload || '40'
@@ -88,6 +95,7 @@ function certificateEmailTemplate(nome: string, s: Record<string, string>): stri
         <div style="background: #ecfdf5; border-left: 4px solid #1a472a; padding: 16px; border-radius: 8px; margin: 20px 0;">
           <p style="margin: 0; color: #1a472a;">📄 O certificado está em formato PDF</p>
           <p style="margin: 8px 0 0; color: #1a472a;">✅ Carga horária: ${eventWorkload} horas</p>
+          <p style="margin: 8px 0 0; color: #1a472a;">🗓️ Participação: ${diaLabel(dia_participacao)}</p>
         </div>
         <p style="color: #6b7280; font-size: 14px;">
           Guarde este certificado. Ele é válido como comprovante de formação continuada.
@@ -104,7 +112,7 @@ function certificateEmailTemplate(nome: string, s: Record<string, string>): stri
 
 // ── Send Functions ──
 
-export async function sendConfirmationEmail(to: string, nome: string): Promise<boolean> {
+export async function sendConfirmationEmail(to: string, nome: string, dia_participacao: string = 'ambos'): Promise<boolean> {
   if (!transporter) {
     console.log(`📧 [MOCK] E-mail de confirmação para ${to} (${nome})`)
     return false
@@ -117,7 +125,7 @@ export async function sendConfirmationEmail(to: string, nome: string): Promise<b
     from: `"SEMED Tuntum" <${gmailUser}>`,
     to,
     subject: `✅ Inscrição Confirmada — ${eventName}`,
-    html: confirmationTemplate(nome, s),
+    html: confirmationTemplate(nome, dia_participacao, s),
   })
 
   console.log(`📧 E-mail de confirmação enviado para ${to}`)
@@ -127,7 +135,8 @@ export async function sendConfirmationEmail(to: string, nome: string): Promise<b
 export async function sendCertificateEmail(
   to: string,
   nome: string,
-  pdfPath: string
+  pdfPath: string,
+  dia_participacao: string = 'ambos'
 ): Promise<boolean> {
   if (!transporter) {
     console.log(`📧 [MOCK] Certificado para ${to} (${nome})`)
@@ -141,7 +150,7 @@ export async function sendCertificateEmail(
     from: `"SEMED Tuntum" <${gmailUser}>`,
     to,
     subject: `🏆 Certificado — ${eventName}`,
-    html: certificateEmailTemplate(nome, s),
+    html: certificateEmailTemplate(nome, dia_participacao, s),
     attachments: [
       {
         filename: `Certificado_${nome.replace(/\s+/g, '_')}.pdf`,

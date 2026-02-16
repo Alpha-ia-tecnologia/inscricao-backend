@@ -28,7 +28,7 @@ router.put('/', authMiddleware, async (req, res) => {
         return
     }
 
-    const allowedKeys = ['event_name', 'event_date', 'event_location', 'event_workload']
+    const allowedKeys = ['event_name', 'event_date', 'event_location', 'event_workload', 'vagas_dia1', 'vagas_dia2']
 
     const client = await pool.connect()
     try {
