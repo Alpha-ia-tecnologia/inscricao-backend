@@ -32,16 +32,39 @@ router.post('/gerar', authMiddleware, async (_req, res) => {
 
     for (const p of presentes) {
         try {
-            const filePath = await generateCertificate(
-                { nome: p.nome, cpf: p.cpf, cargo: p.cargo, instituicao: p.instituicao, dia_participacao: p.dia_participacao || 'ambos' },
-                p.id
-            )
-            await pool.query(
-                `INSERT INTO certificados (inscricao_id, arquivo_path, gerado, data_gerado)
-                 VALUES ($1, $2, 1, NOW())
-                 ON CONFLICT (inscricao_id) DO UPDATE SET arquivo_path = $2, gerado = 1, data_gerado = NOW()`,
-                [p.id, filePath]
-            )
+            const dia = p.dia_participacao || 'ambos'
+
+            if (dia === 'ambos') {
+                // Gerar dois certificados separados (um para cada dia)
+                const filePath1 = await generateCertificate(
+                    { nome: p.nome, cpf: p.cpf, cargo: p.cargo, instituicao: p.instituicao, dia_participacao: 'dia1' },
+                    p.id, 'dia1'
+                )
+                const filePath2 = await generateCertificate(
+                    { nome: p.nome, cpf: p.cpf, cargo: p.cargo, instituicao: p.instituicao, dia_participacao: 'dia2' },
+                    p.id, 'dia2'
+                )
+
+                // Armazenar ambos os caminhos separados por pipe (|)
+                const combinedPath = `${filePath1}|${filePath2}`
+                await pool.query(
+                    `INSERT INTO certificados (inscricao_id, arquivo_path, gerado, data_gerado)
+                     VALUES ($1, $2, 1, NOW())
+                     ON CONFLICT (inscricao_id) DO UPDATE SET arquivo_path = $2, gerado = 1, data_gerado = NOW()`,
+                    [p.id, combinedPath]
+                )
+            } else {
+                const filePath = await generateCertificate(
+                    { nome: p.nome, cpf: p.cpf, cargo: p.cargo, instituicao: p.instituicao, dia_participacao: dia },
+                    p.id
+                )
+                await pool.query(
+                    `INSERT INTO certificados (inscricao_id, arquivo_path, gerado, data_gerado)
+                     VALUES ($1, $2, 1, NOW())
+                     ON CONFLICT (inscricao_id) DO UPDATE SET arquivo_path = $2, gerado = 1, data_gerado = NOW()`,
+                    [p.id, filePath]
+                )
+            }
             gerados++
         } catch (err) {
             console.error(`Erro ao gerar certificado para ${p.nome}:`, err)
@@ -69,7 +92,10 @@ router.post('/enviar', authMiddleware, async (_req, res) => {
 
     for (const p of pendentes) {
         try {
-            await sendCertificateEmail(p.email, p.nome, p.arquivo_path, p.dia_participacao || 'ambos')
+            const dia = p.dia_participacao || 'ambos'
+            const paths = p.arquivo_path.split('|')
+
+            await sendCertificateEmail(p.email, p.nome, paths, dia)
             await pool.query(
                 'UPDATE certificados SET enviado = 1, data_enviado = NOW() WHERE id = $1',
                 [p.cert_id]

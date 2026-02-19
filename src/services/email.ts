@@ -135,28 +135,34 @@ export async function sendConfirmationEmail(to: string, nome: string, dia_partic
 export async function sendCertificateEmail(
   to: string,
   nome: string,
-  pdfPath: string,
+  pdfPaths: string | string[],
   dia_participacao: string = 'ambos'
 ): Promise<boolean> {
   if (!transporter) {
-    console.log(`📧 [MOCK] Certificado para ${to} (${nome})`)
+    console.log(`📧 [MOCK] Certificado para ${to} (${nome}) — ${Array.isArray(pdfPaths) ? pdfPaths.length : 1} arquivo(s)`)
     return false
   }
 
   const s = await getSettings()
   const eventName = s.event_name || 'Jornada Pedagógica 2026'
 
+  // Build attachments array
+  const pathsArray = Array.isArray(pdfPaths) ? pdfPaths : [pdfPaths]
+  const attachments = pathsArray.map((p, i) => {
+    const nomeFormatado = nome.replace(/\s+/g, '_')
+    if (pathsArray.length > 1) {
+      const diaLabel = i === 0 ? 'Dia1' : 'Dia2'
+      return { filename: `Certificado_${nomeFormatado}_${diaLabel}.pdf`, path: p }
+    }
+    return { filename: `Certificado_${nomeFormatado}.pdf`, path: p }
+  })
+
   await transporter.sendMail({
     from: `"SEMED Tuntum" <${gmailUser}>`,
     to,
     subject: `🏆 Certificado — ${eventName}`,
     html: certificateEmailTemplate(nome, dia_participacao, s),
-    attachments: [
-      {
-        filename: `Certificado_${nome.replace(/\s+/g, '_')}.pdf`,
-        path: pdfPath,
-      },
-    ],
+    attachments,
   })
 
   console.log(`📧 Certificado enviado para ${to}`)

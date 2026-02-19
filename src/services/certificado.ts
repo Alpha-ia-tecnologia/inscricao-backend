@@ -28,8 +28,9 @@ async function getSettings(): Promise<Record<string, string>> {
     }, {} as Record<string, string>)
 }
 
-export async function generateCertificate(data: CertificateData, inscricaoId: number): Promise<string> {
-    const filePath = path.join(certsDir, `certificado_${inscricaoId}.pdf`)
+export async function generateCertificate(data: CertificateData, inscricaoId: number, suffix?: string): Promise<string> {
+    const fileName = suffix ? `certificado_${inscricaoId}_${suffix}.pdf` : `certificado_${inscricaoId}.pdf`
+    const filePath = path.join(certsDir, fileName)
 
     const s = await getSettings()
     const eventName = s.event_name || 'Jornada Pedagógica 2026'
