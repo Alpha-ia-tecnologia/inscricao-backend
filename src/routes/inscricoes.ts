@@ -253,15 +253,81 @@ router.get('/relatorio', authMiddleware, async (_req, res) => {
         const ocupDia1 = (counts['dia1'] || 0) + (counts['ambos'] || 0)
         const ocupDia2 = (counts['dia2'] || 0) + (counts['ambos'] || 0)
 
-        // Por instituição
-        const { rows: porInstituicao } = await pool.query(
+        // ── Normalize helper: strip accents, lowercase, collapse spaces ──
+        function normalize(str: string): string {
+            return str
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/\s+/g, ' ')
+                .trim()
+        }
+
+        // Fuzzy group: merge entries whose normalized name contains another
+        function fuzzyGroup(raw: Array<{ name: string; count: number }>): Array<{ name: string; variants: string[]; count: number }> {
+            // Build normalized map: normalized -> { bestName, variants[], totalCount }
+            const normMap = new Map<string, { bestName: string; bestCount: number; variants: string[]; totalCount: number }>()
+            for (const r of raw) {
+                const norm = normalize(r.name)
+                const existing = normMap.get(norm)
+                if (existing) {
+                    existing.totalCount += r.count
+                    existing.variants.push(r.name)
+                    if (r.count > existing.bestCount) {
+                        existing.bestName = r.name
+                        existing.bestCount = r.count
+                    }
+                } else {
+                    normMap.set(norm, { bestName: r.name, bestCount: r.count, variants: [r.name], totalCount: r.count })
+                }
+            }
+
+            // Second pass: merge entries where one normalized name contains another
+            const keys = Array.from(normMap.keys()).sort((a, b) => a.length - b.length)
+            const merged = new Map<string, { bestName: string; variants: string[]; totalCount: number }>()
+            const consumed = new Set<string>()
+
+            for (const key of keys) {
+                if (consumed.has(key)) continue
+                const entry = normMap.get(key)!
+                let targetKey = key
+                let target = { bestName: entry.bestName, variants: [...entry.variants], totalCount: entry.totalCount }
+
+                // Check if any larger key contains this one
+                for (const otherKey of keys) {
+                    if (otherKey === key || consumed.has(otherKey)) continue
+                    if (otherKey.length <= key.length) continue
+                    if (otherKey.includes(key) || key.includes(otherKey)) {
+                        const other = normMap.get(otherKey)!
+                        target.totalCount += other.totalCount
+                        target.variants.push(...other.variants)
+                        if (other.bestName.length > target.bestName.length) {
+                            target.bestName = other.bestName
+                        }
+                        consumed.add(otherKey)
+                    }
+                }
+
+                merged.set(targetKey, target)
+                consumed.add(key)
+            }
+
+            return Array.from(merged.values())
+                .map(v => ({ name: v.bestName, variants: v.variants, count: v.totalCount }))
+                .sort((a, b) => b.count - a.count)
+        }
+
+        // Por instituição (raw then fuzzy-grouped)
+        const { rows: rawInstituicao } = await pool.query(
             'SELECT instituicao as name, COUNT(*)::int as count FROM inscricoes GROUP BY instituicao ORDER BY count DESC'
         )
+        const porInstituicao = fuzzyGroup(rawInstituicao)
 
-        // Por cargo
-        const { rows: porCargo } = await pool.query(
+        // Por cargo (raw then fuzzy-grouped)
+        const { rows: rawCargo } = await pool.query(
             'SELECT cargo as name, COUNT(*)::int as count FROM inscricoes GROUP BY cargo ORDER BY count DESC'
         )
+        const porCargo = fuzzyGroup(rawCargo)
 
         // Por dia de participação
         const porDia = [
