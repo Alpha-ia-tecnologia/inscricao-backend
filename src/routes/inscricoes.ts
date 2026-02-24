@@ -123,6 +123,69 @@ router.get('/vagas', async (_req, res) => {
     }
 })
 
+// POST /api/inscricoes/checkin — Public: self check-in via QR code
+router.post('/checkin', async (req, res) => {
+    const { cpf, dia } = req.body
+
+    if (!cpf || !dia) {
+        res.status(400).json({ error: 'CPF e dia são obrigatórios' })
+        return
+    }
+
+    const diasValidos = ['dia1', 'dia2']
+    if (!diasValidos.includes(dia)) {
+        res.status(400).json({ error: 'Dia inválido. Selecione Dia 1 ou Dia 2.' })
+        return
+    }
+
+    const cpfClean = cpf.replace(/\D/g, '')
+    if (cpfClean.length !== 11) {
+        res.status(400).json({ error: 'CPF inválido' })
+        return
+    }
+
+    try {
+        const { rows } = await pool.query(
+            'SELECT id, nome, dia_participacao, presente_dia1, presente_dia2 FROM inscricoes WHERE cpf = $1',
+            [cpfClean]
+        )
+
+        if (rows.length === 0) {
+            res.status(404).json({ error: 'CPF não encontrado. Verifique se você está inscrito no evento.' })
+            return
+        }
+
+        const inscricao = rows[0]
+
+        // Check if participant is enrolled for the selected day
+        const inscritoDia = inscricao.dia_participacao === 'ambos' || inscricao.dia_participacao === dia
+        if (!inscritoDia) {
+            const diaLabel = dia === 'dia1' ? '1º Dia (25/02)' : '2º Dia (26/02)'
+            res.status(403).json({ error: `Você não está inscrito para o ${diaLabel}. Sua inscrição é apenas para o ${inscricao.dia_participacao === 'dia1' ? '1º Dia' : '2º Dia'}.` })
+            return
+        }
+
+        // Check if already checked in for this day
+        const campoPresenca = dia === 'dia1' ? 'presente_dia1' : 'presente_dia2'
+        if (inscricao[campoPresenca]) {
+            res.json({ nome: inscricao.nome, message: 'Sua presença já foi confirmada para este dia!', already: true })
+            return
+        }
+
+        // Mark presence for the specific day and update the legacy 'presente' flag
+        await pool.query(
+            `UPDATE inscricoes SET ${campoPresenca} = 1, presente = 1 WHERE id = $1`,
+            [inscricao.id]
+        )
+
+        const diaLabel = dia === 'dia1' ? '1º Dia (25/02)' : '2º Dia (26/02)'
+        res.json({ nome: inscricao.nome, message: `Presença confirmada para o ${diaLabel}!`, already: false })
+    } catch (err) {
+        console.error('Erro ao fazer check-in:', err)
+        res.status(500).json({ error: 'Erro interno ao processar check-in' })
+    }
+})
+
 // ── ADMIN (protegidas) ──
 
 // GET /api/inscricoes — Listar todas
@@ -136,6 +199,8 @@ router.get('/', authMiddleware, async (_req, res) => {
 // GET /api/inscricoes/stats — Dashboard stats
 router.get('/stats', authMiddleware, async (_req, res) => {
     const total = (await pool.query('SELECT COUNT(*) as count FROM inscricoes')).rows[0]
+    const presentesDia1 = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente_dia1 = 1')).rows[0]
+    const presentesDia2 = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente_dia2 = 1')).rows[0]
     const presentes = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1')).rows[0]
     const ausentes = Number(total.count) - Number(presentes.count)
 
@@ -155,6 +220,8 @@ router.get('/stats', authMiddleware, async (_req, res) => {
     res.json({
         totalInscritos: Number(total.count),
         presentes: Number(presentes.count),
+        presentesDia1: Number(presentesDia1.count),
+        presentesDia2: Number(presentesDia2.count),
         ausentes,
         certificadosGerados: Number(certificadosGerados.count),
         certificadosEnviados: Number(certificadosEnviados.count),
@@ -170,9 +237,9 @@ router.get('/export', authMiddleware, async (_req, res) => {
     )
 
     const diaLabel = (d: string) => d === 'dia1' ? 'Dia 1 (25/02)' : d === 'dia2' ? 'Dia 2 (26/02)' : 'Ambos os dias'
-    const headers = 'Nome,CPF,E-mail,Telefone,Instituição,Cargo,Dia Participação,Presente,Data Inscrição\n'
+    const headers = 'Nome,CPF,E-mail,Telefone,Instituição,Cargo,Dia Participação,Presente Dia 1,Presente Dia 2,Data Inscrição\n'
     const csvRows = inscricoes.map((i: any) =>
-        `"${i.nome}","${i.cpf}","${i.email}","${i.telefone}","${i.instituicao}","${i.cargo}","${diaLabel(i.dia_participacao || 'ambos')}","${i.presente ? 'Sim' : 'Não'}","${i.data_inscricao}"`
+        `"${i.nome}","${i.cpf}","${i.email}","${i.telefone}","${i.instituicao}","${i.cargo}","${diaLabel(i.dia_participacao || 'ambos')}","${i.presente_dia1 ? 'Sim' : 'Não'}","${i.presente_dia2 ? 'Sim' : 'Não'}","${i.data_inscricao}"`
     ).join('\n')
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
