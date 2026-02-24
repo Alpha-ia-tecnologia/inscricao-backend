@@ -230,6 +230,79 @@ router.get('/stats', authMiddleware, async (_req, res) => {
     })
 })
 
+// GET /api/inscricoes/relatorio — Full report data
+router.get('/relatorio', authMiddleware, async (_req, res) => {
+    try {
+        const total = (await pool.query('SELECT COUNT(*) as count FROM inscricoes')).rows[0]
+        const presentesDia1 = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente_dia1 = 1')).rows[0]
+        const presentesDia2 = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente_dia2 = 1')).rows[0]
+        const presentes = (await pool.query('SELECT COUNT(*) as count FROM inscricoes WHERE presente = 1')).rows[0]
+
+        // Vagas
+        const { rows: settingsRows } = await pool.query('SELECT key, value FROM settings WHERE key IN ($1, $2)', ['vagas_dia1', 'vagas_dia2'])
+        const settingsMap: Record<string, string> = {}
+        for (const r of settingsRows) settingsMap[r.key] = r.value
+        const maxDia1 = parseInt(settingsMap.vagas_dia1 || '500', 10)
+        const maxDia2 = parseInt(settingsMap.vagas_dia2 || '500', 10)
+
+        const { rows: countRows } = await pool.query(
+            `SELECT dia_participacao, COUNT(*)::int as count FROM inscricoes GROUP BY dia_participacao`
+        )
+        const counts: Record<string, number> = {}
+        for (const r of countRows) counts[r.dia_participacao] = r.count
+        const ocupDia1 = (counts['dia1'] || 0) + (counts['ambos'] || 0)
+        const ocupDia2 = (counts['dia2'] || 0) + (counts['ambos'] || 0)
+
+        // Por instituição
+        const { rows: porInstituicao } = await pool.query(
+            'SELECT instituicao as name, COUNT(*)::int as count FROM inscricoes GROUP BY instituicao ORDER BY count DESC'
+        )
+
+        // Por cargo
+        const { rows: porCargo } = await pool.query(
+            'SELECT cargo as name, COUNT(*)::int as count FROM inscricoes GROUP BY cargo ORDER BY count DESC'
+        )
+
+        // Por dia de participação
+        const porDia = [
+            { name: '1º Dia (25/02)', count: counts['dia1'] || 0 },
+            { name: '2º Dia (26/02)', count: counts['dia2'] || 0 },
+            { name: 'Ambos os dias', count: counts['ambos'] || 0 },
+        ]
+
+        // Certificados
+        const certificadosGerados = (await pool.query('SELECT COUNT(*) as count FROM certificados WHERE gerado = 1')).rows[0]
+        const certificadosEnviados = (await pool.query('SELECT COUNT(*) as count FROM certificados WHERE enviado = 1')).rows[0]
+
+        // Lista completa de participantes
+        const { rows: participantes } = await pool.query(
+            'SELECT nome, cpf, instituicao, cargo, dia_participacao, presente_dia1, presente_dia2, data_inscricao FROM inscricoes ORDER BY nome'
+        )
+
+        res.json({
+            totalInscritos: Number(total.count),
+            presentes: Number(presentes.count),
+            presentesDia1: Number(presentesDia1.count),
+            presentesDia2: Number(presentesDia2.count),
+            ausentes: Number(total.count) - Number(presentes.count),
+            vagas: {
+                dia1: { total: ocupDia1, max: maxDia1 },
+                dia2: { total: ocupDia2, max: maxDia2 },
+            },
+            porInstituicao,
+            porCargo,
+            porDia,
+            certificadosGerados: Number(certificadosGerados.count),
+            certificadosEnviados: Number(certificadosEnviados.count),
+            participantes,
+            geradoEm: new Date().toISOString(),
+        })
+    } catch (err) {
+        console.error('Erro ao gerar relatório:', err)
+        res.status(500).json({ error: 'Erro ao gerar relatório' })
+    }
+})
+
 // GET /api/inscricoes/export — CSV
 router.get('/export', authMiddleware, async (_req, res) => {
     const { rows: inscricoes } = await pool.query(
