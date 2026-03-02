@@ -126,6 +126,92 @@ router.get('/stats', authMiddleware, async (_req, res) => {
     }
 })
 
+// GET /api/avaliacoes/relatorio-detalhado — Relatório completo para impressão
+router.get('/relatorio-detalhado', authMiddleware, async (_req, res) => {
+    try {
+        const total = (await pool.query('SELECT COUNT(*) as count FROM avaliacoes')).rows[0]
+        const totalInscritos = (await pool.query('SELECT COUNT(*) as count FROM inscricoes')).rows[0]
+
+        // Médias
+        const medias = (await pool.query(`
+            SELECT 
+                ROUND(AVG(nota_geral)::numeric, 1) as media_geral,
+                ROUND(AVG(nota_conteudo)::numeric, 1) as media_conteudo,
+                ROUND(AVG(nota_organizacao)::numeric, 1) as media_organizacao,
+                ROUND(AVG(nota_palestrantes)::numeric, 1) as media_palestrantes,
+                ROUND(AVG((nota_geral + nota_conteudo + nota_organizacao + nota_palestrantes) / 4.0)::numeric, 1) as media_combinada
+            FROM avaliacoes
+        `)).rows[0]
+
+        // Distribuição combinada de notas
+        const { rows: distribuicao } = await pool.query(`
+            SELECT nota, COUNT(*)::int as count FROM (
+                SELECT nota_geral as nota FROM avaliacoes
+                UNION ALL
+                SELECT nota_conteudo as nota FROM avaliacoes
+                UNION ALL
+                SELECT nota_organizacao as nota FROM avaliacoes
+                UNION ALL
+                SELECT nota_palestrantes as nota FROM avaliacoes
+            ) sub
+            GROUP BY nota
+            ORDER BY nota
+        `)
+
+        // Distribuição por categoria individual
+        const distGeral = (await pool.query(`SELECT nota_geral as nota, COUNT(*)::int as count FROM avaliacoes GROUP BY nota_geral ORDER BY nota_geral`)).rows
+        const distConteudo = (await pool.query(`SELECT nota_conteudo as nota, COUNT(*)::int as count FROM avaliacoes GROUP BY nota_conteudo ORDER BY nota_conteudo`)).rows
+        const distOrganizacao = (await pool.query(`SELECT nota_organizacao as nota, COUNT(*)::int as count FROM avaliacoes GROUP BY nota_organizacao ORDER BY nota_organizacao`)).rows
+        const distPalestrantes = (await pool.query(`SELECT nota_palestrantes as nota, COUNT(*)::int as count FROM avaliacoes GROUP BY nota_palestrantes ORDER BY nota_palestrantes`)).rows
+
+        // Lista individual de avaliações
+        const { rows: avaliacoes } = await pool.query(`
+            SELECT i.nome, i.cpf, i.instituicao, i.cargo,
+                   a.nota_geral, a.nota_conteudo, a.nota_organizacao, a.nota_palestrantes,
+                   ROUND(((a.nota_geral + a.nota_conteudo + a.nota_organizacao + a.nota_palestrantes) / 4.0)::numeric, 1) as media_individual,
+                   a.comentario, a.sugestoes, a.created_at
+            FROM avaliacoes a
+            JOIN inscricoes i ON a.inscricao_id = i.id
+            ORDER BY i.nome ASC
+        `)
+
+        // Comentários (apenas os que possuem texto)
+        const { rows: comentarios } = await pool.query(`
+            SELECT a.comentario, a.sugestoes, a.created_at, i.nome
+            FROM avaliacoes a
+            JOIN inscricoes i ON a.inscricao_id = i.id
+            WHERE (a.comentario IS NOT NULL AND a.comentario != '') OR (a.sugestoes IS NOT NULL AND a.sugestoes != '')
+            ORDER BY a.created_at DESC
+        `)
+
+        res.json({
+            totalAvaliacoes: Number(total.count),
+            totalInscritos: Number(totalInscritos.count),
+            taxaResposta: Number(totalInscritos.count) > 0 ? Math.round((Number(total.count) / Number(totalInscritos.count)) * 100) : 0,
+            mediaGeral: Number(medias.media_combinada) || 0,
+            medias: {
+                geral: Number(medias.media_geral) || 0,
+                conteudo: Number(medias.media_conteudo) || 0,
+                organizacao: Number(medias.media_organizacao) || 0,
+                palestrantes: Number(medias.media_palestrantes) || 0,
+            },
+            distribuicao,
+            distribuicaoPorCategoria: {
+                geral: distGeral,
+                conteudo: distConteudo,
+                organizacao: distOrganizacao,
+                palestrantes: distPalestrantes,
+            },
+            avaliacoes,
+            comentarios,
+            geradoEm: new Date().toISOString(),
+        })
+    } catch (err) {
+        console.error('Erro ao gerar relatório de avaliações:', err)
+        res.status(500).json({ error: 'Erro interno' })
+    }
+})
+
 // GET /api/avaliacoes/export — Exportar CSV
 router.get('/export', authMiddleware, async (_req, res) => {
     try {
