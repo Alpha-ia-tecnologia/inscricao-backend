@@ -23,7 +23,7 @@ async function seed() {
         ['event_name', 'Jornada Pedagógica 2026'],
         ['event_date', '25 e 26 de Fevereiro de 2026'],
         ['event_location', 'Centro de Convenções — Tuntum, MA'],
-        ['event_workload', '40'],
+        ['event_workload', '16'],
         ['vagas_dia1', '500'],
         ['vagas_dia2', '500'],
     ]
