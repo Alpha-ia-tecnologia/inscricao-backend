@@ -125,9 +125,9 @@ function renderCertificateContent(
         contentStartY = 108
     } else {
         doc.fontSize(13).fillColor(COLORS.muted)
-            .text('PREFEITURA MUNICIPAL DE TUNTUM \u2014 MARANH\u00C3O', 0, 52, { align: 'center', width })
+            .text('PREFEITURA MUNICIPAL DE TUNTUM — MARANHÃO', 0, 52, { align: 'center', width })
         doc.fontSize(11).fillColor(COLORS.muted)
-            .text('Secretaria Municipal de Educa\u00E7\u00E3o \u2014 SEMED', 0, 70, { align: 'center', width })
+            .text('Secretaria Municipal de Educação — SEMED', 0, 70, { align: 'center', width })
         contentStartY = 95
     }
 
@@ -145,7 +145,7 @@ function renderCertificateContent(
 
     // ── Subtítulo "de Participação" ──
     doc.fontSize(13).fillColor(COLORS.primary)
-        .text('de Participa\u00E7\u00E3o', 0, dividerY + 52, { align: 'center', width, characterSpacing: 1 })
+        .text('de Participação', 0, dividerY + 52, { align: 'center', width, characterSpacing: 1 })
 
     // ── Corpo ──
     const bodyY = dividerY + 80
@@ -165,14 +165,14 @@ function renderCertificateContent(
     // CPF / Cargo / Instituição
     doc.fontSize(10.5).fillColor(COLORS.muted)
         .text(
-            `CPF: ${formatCPF(data.cpf)}  \u2022  ${data.cargo}  \u2022  ${data.instituicao}`,
+            `CPF: ${formatCPF(data.cpf)}  •  ${data.cargo}  •  ${data.instituicao}`,
             80, bodyY + 66, { align: 'center', width: width - 160 }
         )
 
     // Texto principal
     doc.fontSize(12).fillColor(COLORS.foreground)
         .text(
-            `participou do ${settings.eventName}, promovido pela Secretaria Municipal de Educa\u00E7\u00E3o de Tuntum \u2014 MA, realizado em ${settings.eventDate}, com carga hor\u00E1ria total de`,
+            `participou do ${settings.eventName}, promovido pela Secretaria Municipal de Educação de Tuntum — MA, realizado em ${settings.eventDate}, com carga horária total de`,
             100, bodyY + 92, { align: 'center', width: width - 200, lineGap: 5 }
         )
 
@@ -190,11 +190,11 @@ function renderCertificateContent(
         .text(hoursText, 0, hoursY, { align: 'center', width })
 
     // Dia de participação
-    const diaText = data.dia_participacao === 'dia1' ? '1\u00BA Dia \u2014 Gestores, Coordenadores e Equipe T\u00E9cnica da SEMED'
-        : data.dia_participacao === 'dia2' ? '2\u00BA Dia \u2014 Professores, Gestores, Coordenadores e Equipe da SEMED'
+    const diaText = data.dia_participacao === 'dia1' ? '1º Dia — Gestores, Coordenadores e Equipe Técnica da SEMED'
+        : data.dia_participacao === 'dia2' ? '2º Dia — Professores, Gestores, Coordenadores e Equipe da SEMED'
             : 'Ambos os dias'
     doc.fontSize(10).fillColor(COLORS.muted)
-        .text(`Participa\u00E7\u00E3o: ${diaText}`, 0, hoursY + 40, { align: 'center', width })
+        .text(`Participação: ${diaText}`, 0, hoursY + 40, { align: 'center', width })
 
     // ── Rodapé ──
     const footerY = hoursY + 65
@@ -207,10 +207,10 @@ function renderCertificateContent(
         .lineWidth(0.8).stroke(COLORS.primary)
 
     doc.fontSize(10).fillColor(COLORS.secondary)
-        .text(`Coordena\u00E7\u00E3o do ${settings.eventName}`, 0, sigY + 6, { align: 'center', width })
+        .text(`Coordenação do ${settings.eventName}`, 0, sigY + 6, { align: 'center', width })
 
     doc.fontSize(8.5).fillColor(COLORS.muted)
-        .text('SEMED \u2014 Tuntum, MA', 0, sigY + 20, { align: 'center', width })
+        .text('SEMED — Tuntum, MA', 0, sigY + 20, { align: 'center', width })
 
     // ── Linha ciano inferior decorativa acima da faixa ──
     doc.moveTo(m + 10, height - m - 4).lineTo(width - m - 10, height - m - 4)
@@ -223,9 +223,9 @@ export async function generateCertificate(data: CertificateData, inscricaoId: nu
 
     const s = await getSettings()
     const settings = {
-        eventName: s.event_name || 'I Simp\u00F3sio de Educa\u00E7\u00E3o de Tuntum',
+        eventName: s.event_name || 'I Simpósio de Educação de Tuntum',
         eventDate: s.event_date || '25 e 26 de Fevereiro de 2026',
-        eventLocation: s.event_location || 'CT Centro de Treinamento Esportivo \u2014 Tuntum, MA',
+        eventLocation: s.event_location || 'CT Centro de Treinamento Esportivo — Tuntum, MA',
         eventWorkload: s.event_workload || '16',
     }
 
@@ -250,9 +250,9 @@ export async function generateCertificate(data: CertificateData, inscricaoId: nu
 export async function generateCertificateStream(data: CertificateData): Promise<InstanceType<typeof PDFDocument>> {
     const s = await getSettings()
     const settings = {
-        eventName: s.event_name || 'I Simp\u00F3sio de Educa\u00E7\u00E3o de Tuntum',
+        eventName: s.event_name || 'I Simpósio de Educação de Tuntum',
         eventDate: s.event_date || '25 e 26 de Fevereiro de 2026',
-        eventLocation: s.event_location || 'CT Centro de Treinamento Esportivo \u2014 Tuntum, MA',
+        eventLocation: s.event_location || 'CT Centro de Treinamento Esportivo — Tuntum, MA',
         eventWorkload: s.event_workload || '16',
     }
 
@@ -280,9 +280,9 @@ export async function generateCertificateStream(data: CertificateData): Promise<
 export async function generateCertificateStreamReal(data: CertificateData): Promise<InstanceType<typeof PDFDocument>> {
     const s = await getSettings()
     const settings = {
-        eventName: s.event_name || 'I Simp\u00F3sio de Educa\u00E7\u00E3o de Tuntum',
+        eventName: s.event_name || 'I Simpósio de Educação de Tuntum',
         eventDate: s.event_date || '25 e 26 de Fevereiro de 2026',
-        eventLocation: s.event_location || 'CT Centro de Treinamento Esportivo \u2014 Tuntum, MA',
+        eventLocation: s.event_location || 'CT Centro de Treinamento Esportivo — Tuntum, MA',
         eventWorkload: s.event_workload || '16',
     }
 
